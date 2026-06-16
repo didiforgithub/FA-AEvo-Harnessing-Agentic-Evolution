@@ -1,0 +1,160 @@
+%%%%%%%% Foundation Agents preprint version %%%%%%%%%%%%%%%%%
+
+\documentclass[11pt, a4paper, logo, copyright]{foundationagents}
+
+\pdfinfoomitdate 1
+
+\makeatletter
+\renewcommand\bibentry[1]{\nocitep{#1}{\frenchspacing\@nameuse{BR@r@#1\@extra@b@citeb}}}
+\makeatother
+
+\usepackage[authoryear, sort&compress, round]{natbib}
+
+% Recommended packages
+\hypersetup{
+  colorlinks,
+  citecolor=blue,
+  linkcolor=red,
+  urlcolor=blue}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage{multirow}
+\usepackage{xspace}
+\usepackage{makecell}
+\usepackage{bm}
+\usepackage{nicefrac}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{listings}
+
+% Customize
+\newcommand{\red}[1]{#1}
+\newcommand{\ourmethod}{\textsc{AEvo}\xspace}
+\newcommand{\method}{\ourmethod}
+
+% Author comment macros (disabled for preprint)
+\newcommand{\yuyu}[1]{}
+\newcommand{\didi}[1]{}
+\newcommand{\bang}[1]{}
+
+\newcommand{\hlfirst}[1]{\colorbox[HTML]{CFE2FF}{#1}}
+\newcommand{\hlsecond}[1]{\colorbox[HTML]{E8F1FF}{#1}}
+
+\definecolor{rowgray}{gray}{0.85}
+\definecolor{rowlightblue}{RGB}{215, 230, 255}
+\definecolor{codebg}{RGB}{247, 247, 247}
+
+% Gemini colors (blue)
+\definecolor{geminiBG}{RGB}{235, 245, 255}
+\definecolor{geminiDark}{RGB}{0, 80, 180}
+
+% DeepSeek colors (green)
+\definecolor{deepseekBG}{RGB}{235, 250, 235}
+\definecolor{deepseekDark}{RGB}{0, 100, 0}
+
+\newcommand{\geminiRow}{\rowcolor{geminiBG}}
+\newcommand{\deepseekRow}{\rowcolor{deepseekBG}}
+
+\newcommand{\whitecell}{\cellcolor{white}}
+
+\newcommand{\bestGem}[1]{\textcolor{geminiDark}{\bm{#1}}}
+\newcommand{\bestDeep}[1]{\textcolor{deepseekDark}{\bm{#1}}}
+
+\let\updelta\relax
+\let\downdelta\relax
+\newcommand{\updelta}[1]{\ensuremath{\textcolor{geminiDark}{\scriptsize(\uparrow #1)}}}
+\newcommand{\downdelta}[1]{\ensuremath{\textcolor{deepseekDark}{\scriptsize(\downarrow #1)}}}
+
+\lstdefinestyle{papercode}{
+  basicstyle=\ttfamily\scriptsize,
+  backgroundcolor=\color{codebg},
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  frame=single,
+  framerule=0pt,
+  keepspaces=true,
+  showstringspaces=false,
+  xleftmargin=0.6em,
+  xrightmargin=0.2em,
+  framexleftmargin=0.6em,
+  aboveskip=0.6em,
+  belowskip=0.6em
+}
+
+% cleveref
+\usepackage[capitalize,noabbrev]{cleveref}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% THEOREMS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+% Todonotes (disabled for preprint)
+\usepackage[disable,textsize=tiny]{todonotes}
+
+% ============================================================
+\title{Harnessing Agentic Evolution}
+
+\correspondingauthor{Chenglin Wu and Yuyu Luo}
+\renewcommand{\today}{}
+
+\author[1,2]{Jiayi Zhang}
+\author[2]{Yongfeng Gu}
+\author[1,2]{Jianhao Ruan}
+\author[3]{Maojia Song}
+\author[2]{Yiran Peng}
+\author[4]{Zhiguang Han}
+\author[1]{Jinyu Xiang}
+\author[5]{Zhitao Wang}
+\author[6]{Caiyin Yang}
+\author[2]{Yixi Ouyang}
+\author[7]{Bang Liu}
+\author[2$\dagger$]{Chenglin Wu}
+\author[1$\dagger$]{Yuyu Luo}
+
+\affil[1]{The Hong Kong University of Science and Technology (Guangzhou)}
+\affil[2]{DeepWisdom}
+\affil[3]{Singapore University of Technology and Design}
+\affil[4]{Nanyang Technological University}
+\affil[5]{Shanghai Jiao Tong University}
+\affil[6]{Tsinghua University}
+\affil[7]{Université de Montréal \& Mila}
+
+\input{files/0-abstract}
+
+\begin{document}
+
+\maketitle
+
+\input{files/1-introduction-new}
+\input{files/2-related-work}
+\input{files/3-preliminary}
+\input{files/4-method}
+\input{files/5-experiments}
+\input{files/6-conclusions}
+
+\newpage
+\bibliographystyle{abbrvnat}
+\bibliography{cited}
+
+\newpage
+\appendix
+\input{files/7-appendix}
+
+\end{document}

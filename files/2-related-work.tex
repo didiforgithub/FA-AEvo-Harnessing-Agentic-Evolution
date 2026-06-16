@@ -1,0 +1,17 @@
+\section{Related Work}
+\label{sec:related_work}
+
+\textbf{Agentic Evolution.}
+A growing line of work uses LLMs and agents to iteratively improve artifacts through generation, feedback, and revision~\citep{DBLP:conf/icml/Li0FXC0L25,li2026deepeye,DBLP:journals/corr/abs-2510-17586,wu2026autowebworldsynthesizinginfiniteverifiable}. 
+Prompt methods optimize language-model programs or feedback-driven prompts, including DSPy~\citep{khattab2024dspy}, SPO~\citep{xiang2025self}, TextGrad~\citep{yuksekgonul2024textgrad}, and GEPA~\citep{agrawal2025gepa}. 
+Another line studies the automated design and evolution of agentic systems and workflows, such as ADAS~\citep{hu2024automated}, Darwin G\"odel Machine~\citep{zhang2025darwin}, Huxley-G\"odel Machine~\citep{wang2025huxley}, AFlow~\citep{zhang2024aflow}, RobustFlow~\citep{xu2025robustflow}, and SkillRL~\citep{xia2026skillrl}. 
+Recent open-ended discovery systems further apply evolutionary search to scientific and algorithmic discovery, including AlphaEvolve~\citep{novikov2025alphaevolve}, OpenEvolve~\citep{openevolve}, TTS-Discover~\citep{yuksekgonul2026learning}, CORAL~\citep{qu2026coral}, SimpleTES~\citep{ye2026evaluation}, and ASI-Evolve~\citep{xu2026asi}. 
+However, their search behavior is typically controlled either by fixed procedures or by agents directly managing candidate generation. 
+In contrast, \method treats the evolution process itself as an interactive environment and studies how to steer the mechanism that controls future search.
+
+\textbf{Agentic Meta-Evolution.}
+Early meta-learning work showed that the learning rule itself can be optimized, for example by learning recurrent reinforcement-learning dynamics~\citep{wang2016learning} or evolving policy-gradient objectives~\citep{houthooft2018evolved}.
+Recent agentic systems extend this idea to editable agent programs and memory systems.
+HyperAgents study self-referential agent programs in which both task-solving behavior and the meta-improvement mechanism can be modified~\citep{zhang2026hyperagents}.
+MemEvolve and ALMA similarly explore meta-evolution over agent memory designs~\citep{zhang2025memevolve, xiong2026learning}.
+Unlike HyperAgents, which internalize meta-improvement within a self-modifying agent program, \method treats agentic evolution as an interactive environment observed and edited through an external harness, covering both hand-designed procedures and general-purpose agents while keeping evaluation and candidate recording externally governed.

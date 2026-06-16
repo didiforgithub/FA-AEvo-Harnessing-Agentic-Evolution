@@ -1,0 +1,837 @@
+\section{Ablation Study Details}
+\label{appendix:ablation}
+
+\begin{table}[h]
+\caption{
+Ablation study on the Kernel optimization task.
+Full reports the main \ourmethod$_{\texttt{Agent}}$ setting, while each ablation reports three independent runs.
+Total R. denotes completed evolution rounds, and Best R. denotes the first round reaching the reported best cycles.
+}
+\label{tab:ablation}
+\centering
+\small
+\setlength{\tabcolsep}{3.6pt}
+\renewcommand{\arraystretch}{1.15}
+
+\begin{tabular}{llccccc}
+\toprule[1.2pt]
+\textbf{Method}
+& \textbf{Run}
+& \textbf{Reward Hack}
+& \textbf{Total R.}
+& \textbf{Cycles $\downarrow$}
+& \textbf{Best R.}
+& \textbf{Invalid / Total} \\
+\midrule[0.8pt]
+
+Full
+& --
+& No
+& 100
+& \textbf{1138}
+& 99
+& 16/100 \\
+
+\midrule[0.3pt]
+
+\multirow{3}{*}{\makecell[l]{w/o Meta-Agent\\Skills}}
+& 1 & No & 37 & 2379 & 18 & 2/37 \\
+& 2 & No & 99 & 1536 & 99 & 28/99 \\
+& 3 & No & 65 & 1407 & 53 & 21/65 \\
+
+\midrule[0.3pt]
+
+\multirow{3}{*}{\makecell[l]{w/o Evolution\\Harness}}
+& 1 & No  & 100 & 1167 & 81 & 19/100 \\
+& 2 & Yes & 100 & N/A  & N/A & 47/100 \\
+& 3 & Yes & 57  & N/A  & N/A & 22/57 \\
+
+\bottomrule[1.2pt]
+\end{tabular}
+\end{table}
+
+\section{Implementation Details}
+\label{appendix:impl_details}
+
+When temperature is exposed, we set it to 1; when reasoning-effort control is available, we use the high setting; and we use a maximum context budget of 128k tokens. We run 20 optimization rounds on Terminal-Bench and ARC-AGI-2. On open-ended optimization tasks, we allow up to 100 rounds and early-stop when a run reaches the known target score or fails to improve for 25 consecutive rounds. The initial procedure in the procedure-based setting uses best-valid-candidate selection plus a heuristic LLM optimizer; details are given in Appendix~\ref{appendix:init_procedure}. The initial agent used on the standard agentic and reasoning tasks is a ReAct-style~\citep{yao2022react} agent; details are given in Appendix~\ref{appendix:init_agent}.
+
+\section{Additional Experimental Details}
+\label{appendix:details}
+
+\subsection{Task and Metric Details}
+\label{appendix:task_metric_details}
+
+Our main experiments cover two standard benchmarks and three open-ended optimization tasks. Terminal-Bench evaluates end-to-end task completion in terminal environments, while ARC-AGI-2 measures abstract reasoning under fixed evaluation rules. The three open-ended tasks use hidden or fixed external evaluators and require the optimizer to improve executable code rather than only produce one-shot answers.
+
+\paragraph{Circle Packing.}
+In \textit{circle\_packing\_26}, the goal is to pack 26 circles into a unit square and maximize the sum of their radii. The evaluator returns a validity bit and the achieved packing score. Higher is better.
+
+\paragraph{Autocorrelation-Second.}
+In \textit{autocorrelation\_second}, the goal is to construct a non-negative function on $[-\nicefrac{1}{4}, \nicefrac{1}{4}]$ that maximizes
+\[
+R(f)=\frac{\|f*f\|_2^2}{\|f*f\|_1 \cdot \|f*f\|_\infty}.
+\]
+The evaluator scores the submitted construction directly by this ratio. Higher is better.
+
+\paragraph{Performance Engineering.}
+In the performance-engineering take-home, the goal is to optimize a kernel for a simulated VLIW SIMD machine while preserving correctness on the hidden tests. We report raw cycle count in the main table, so lower is better, although the evaluator also exposes a normalized score derived from the cycle count.
+
+\paragraph{Reporting Protocol.}
+For Terminal-Bench and ARC-AGI-2, we report Avg@3 across three independent runs, together with the first optimization round that reaches the best score. For open-ended optimization, we report Best@3 across three runs under a fixed evaluation budget, together with the first round that reaches the best result and the average dollar cost per optimization round. Open-ended runs are capped at 100 rounds and are early-stopped if they reach the known target or plateau for 25 consecutive rounds.
+
+\paragraph{Cost Computation.}
+For a run with $R$ optimization rounds, the average dollar cost per round is
+\[
+\$/R=\frac{1}{R}\sum_{r=1}^{R}\left(
+p_{\mathrm{in}} n^{(r)}_{\mathrm{in}}
++
+p_{\mathrm{cache}} n^{(r)}_{\mathrm{cache}}
++
+p_{\mathrm{out}} n^{(r)}_{\mathrm{out}}
+\right),
+\]
+where $n^{(r)}_{\mathrm{in}}$, $n^{(r)}_{\mathrm{cache}}$, and $n^{(r)}_{\mathrm{out}}$ denote the input, cached-input, and output token counts in round $r$, and $p_{\mathrm{in}}$, $p_{\mathrm{cache}}$, and $p_{\mathrm{out}}$ are the corresponding provider prices.
+
+\subsection{Initialization Details}
+
+\subsubsection{Initial Procedure in Procedure-Based \method}
+\label{appendix:init_procedure}
+
+The initial procedure used by procedure-based \ourmethod is intentionally minimal. It selects the current best valid candidate as the parent, applies a single LLM rewrite step, and then invokes the fixed evaluator. The excerpt below shows the corresponding editable surface.
+
+\begin{lstlisting}[style=papercode,language=Python]
+class BestByScoreSelection(Selection):
+    async def select(self, harness: Harness) -> InfoBundle:
+        latest = harness.latest()
+        if latest is None:
+            seed = harness.new_candidate(parent_round=None)
+            harness.write_artifact(
+                seed, SOLUTION_FILE, _read(harness.workspace / SEED_FILE)
+            )
+            seed_metrics = await ReadEvalEvaluation().evaluate(seed)
+            harness.record_metrics(seed.round, seed_metrics)
+            latest = seed
+
+        best = harness.best(metric="combined_score") or latest
+        return InfoBundle(parent=best, notes=f"best round={best.round}")
+
+
+class LLMRewriteOptimization(Optimization):
+    SYSTEM_PROMPT = (
+        "You are an expert Python programmer optimizing a circle-packing "
+        "solution. Respond with ONLY a single ```python ...``` block."
+    )
+
+    async def optimize(self, info, harness, new_candidate):
+        parent_code = _read(info.parent.artifacts_dir / SOLUTION_FILE)
+        parent_metrics = harness.read_metrics(info.parent.round)
+        prompt = (
+            f"Current program (score={parent_metrics.get('combined_score', 'n/a')}):\n"
+            f"```python\n{parent_code}\n```"
+        )
+        raw = await llm(prompt, max_tokens=128000)
+        harness.write_artifact(
+            new_candidate, SOLUTION_FILE, _extract_python_block(str(raw))
+        )
+\end{lstlisting}
+
+This initialization exposes a limited search surface: it uses score-based selection, a single-parent rewrite step, and no richer failure analysis. This makes later meta-edits easier to interpret because they modify these exposed handles rather than the evaluator.
+
+\subsubsection{Initial Agent in Agentic and Reasoning Tasks}
+\label{appendix:init_agent}
+
+For Terminal-Bench and ARC-AGI-2, the initial agent is a minimal ReAct-style agent. The prompt surface and the `step()` loop are both editable, but the seed version contains only basic reasoning, short-horizon memory, and a strict JSON+`bash` action protocol.
+
+\begin{lstlisting}[style=papercode,language=Python]
+REACT_PROMPT = """
+==== Instruction ====
+{instruction}
+
+==== Action Space ====
+{action_space}
+
+==== Memory ====
+Recent memory:
+{memory}
+
+==== Current Observation ====
+{obs}
+
+==== Thinking ====
+You should think step by step before you output an action.
+"""
+
+async def step(self, observation: Observation, history: Any):
+    act_prompt = REACT_PROMPT.format(
+        instruction=self.current_env_instruction,
+        action_space=self.current_action_space,
+        obs=observation,
+        memory=self._get_memory(),
+    )
+    resp = await self.llm(act_prompt)
+    memory = parse_llm_output(resp, "memory")
+    action = self.parse_action(resp)
+
+    if isinstance(action, dict) and action.get("action") == "execute":
+        params = action.setdefault("params", {})
+        if not params.get("command"):
+            bash_cmd = self._extract_bash_command(resp)
+            if bash_cmd:
+                params["command"] = bash_cmd
+
+    await self.memory.add_memory(obs=agent_obs, action=action, thinking=memory)
+    return action, resp, act_prompt
+\end{lstlisting}
+
+This weakly structured initialization makes subsequent improvements easier to attribute to changes in prompts, memory management, recovery logic, or context organization rather than to a highly engineered seed agent.
+
+\subsubsection{Meta-Agent Skill Excerpt}
+\label{app:meta_agent_skill}
+
+The meta-agent is governed by a compact operational skill that constrains how it reads the workspace, attributes failure, and chooses one causal intervention at a time. A representative excerpt is shown below.
+
+\begin{lstlisting}[style=papercode]
+## 1. Core Loop
+
+Read -> Attribute -> Choose Action -> Run Inner-Agent -> Record
+
+## 4. Choose One Action
+
+At each inter-session boundary, choose exactly one action.
+
+### A. goal change
+Change only `sessions/_next_goal.md`.
+
+### B. Harness change
+Change durable support files such as:
+- `skill/evolve_skill.md`
+- `shared/validators/`
+- `shared/tools/`
+- `shared/notes/`
+
+## 8. Hard Rules
+
+Allowed:
+- write `sessions/_next_goal.md`
+- edit `skill/evolve_skill.md`
+- launch inner-agent through `python -m evolver.cli run-inner-agent`
+
+Forbidden:
+- edit `candidates/`
+- call `oer-eval eval` directly
+- bypass the gateway or evaluator
+\end{lstlisting}
+
+The meta-agent therefore acts as a controller over future search rather than as an additional task-facing worker. The skill keeps that role boundary explicit.
+
+\subsection{Representative Evolved Artifacts and Outcomes}
+
+\subsubsection{Representative Evolved Procedures}
+\label{appendix:opt_procedure}
+
+The excerpt below is taken from a high-performing ARC-AGI-2 procedure. In later rounds, the evolved procedure forwards not only the current best artifact but also per-task slices from alternative references, enabling the optimizer to formulate a single causal hypothesis from those diagnostics.
+
+\begin{lstlisting}[style=papercode,language=Python]
+class CrossCandidateSelection(Selection):
+    REF_K = 2
+
+    async def select(self, harness: Harness) -> InfoBundle:
+        ...
+        scored.sort(key=lambda t: (t[1], t[0].round), reverse=True)
+
+        best_cand, best_acc, _ = scored[0]
+        refs = []
+        ref_notes = []
+        for c, acc, _metrics in scored[1:]:
+            if len(refs) >= self.REF_K:
+                break
+            refs.append(c)
+            tasks_block = _per_task_results_block(
+                _read(c.folder / "eval_output.txt")
+            )
+            ref_notes.append(
+                f"  Round {c.round}: accuracy={acc:.4f}\n"
+                f"{_indent(tasks_block, '    ')}"
+            )
+
+        best_tasks = _per_task_results_block(
+            _read(best_cand.folder / "eval_output.txt")
+        )
+
+        notes_lines = [
+            f"Selection: best parent round={best_cand.round} accuracy={best_acc:.4f}",
+            f"Total candidates so far: {len(all_rounds)}",
+            "",
+            "[Best per-task results]",
+            _indent(best_tasks or "(no per-task block)", "  "),
+        ]
+        return InfoBundle(
+            parent=best_cand,
+            references=refs,
+            notes="\n".join(notes_lines),
+        )
+\end{lstlisting}
+
+\begin{lstlisting}[style=papercode,language=Python]
+class LLMRewriteAgentOptimization(Optimization):
+    async def optimize(self, info, harness, new_candidate):
+        parent_code = _read(info.parent.artifacts_dir / ARTIFACT_FILE)
+        parent_metrics = harness.read_metrics(info.parent.round)
+        parent_eval_log = _read(info.parent.folder / "eval_output.txt")
+
+        parent_acc = float(parent_metrics.get("accuracy", 0.0) or 0.0)
+        ref_blocks = []
+        for ref in info.references or []:
+            ref_code = _read(ref.artifacts_dir / ARTIFACT_FILE)
+            ref_metrics = harness.read_metrics(ref.round) or {}
+            ref_acc = float(ref_metrics.get("accuracy", 0.0) or 0.0)
+            label = "ANTI-EXAMPLE" if ref_acc < parent_acc else "REFERENCE"
+            ref_blocks.append(
+                f"### {label} round {ref.round} "
+                f"(accuracy={ref_acc:.4f})\n"
+                f"```python\n{ref_code[:6000]}\n```"
+            )
+        ref_section = "\n\n".join(ref_blocks) if ref_blocks else "(none yet)"
+
+        base_prompt = (
+            f"## Selection notes\n{info.notes}\n\n"
+            f"## Current agent.py "
+            f"(round {info.parent.round}, accuracy={parent_metrics.get('accuracy', 'n/a')})\n"
+            f"```python\n{parent_code}\n```\n\n"
+            f"## Recent eval output (tail)\n"
+            f"```\n{parent_eval_log[-_EVAL_LOG_TAIL:]}\n```\n\n"
+            f"## Alternative references\n{ref_section}\n\n"
+            f"## Task\n"
+            f"Produce an improved agent.py. Form ONE specific theory "
+            f"about the current failures and test the smallest edit "
+            f"that directly probes that theory."
+        )
+\end{lstlisting}
+
+This excerpt illustrates the main leverage of procedure-mode \ourmethod: evolution changes the evidence presented to the optimizer and the way that evidence is structured, not only the candidate artifact being scored.
+
+\subsubsection{Representative Evolved Agent Harness}
+\label{appendix:opt_harness}
+
+In the agent-based setting, the evolved object is the harness seen by future inner-agent sessions rather than a single submitted artifact. In the performance-engineering run, this harness contained at least five durable layers: a task skill, a session-specific goal, a persistent family map, support utilities for evaluation accounting, and structured session notes written back into the workspace.
+
+\paragraph{Task skill.}
+\begin{lstlisting}[style=papercode]
+# Evolve Skill - Performance Engineering (VLIW Kernel)
+
+Optimize a kernel on a simulated VLIW SIMD architecture to minimize
+clock cycles. Combined Score = `147734 / cycles` (higher is better;
+the goal at the top of your
+prompt pins this session's focus - read it before reading anything
+else.
+
+## Eval
+
+$ oer-eval eval --program attempts/v1.py
+Combined Score: 6.38
+Validity:       1.0
+Remaining Evals: 95
+Session Evals Remaining: 9
+
+## Don't stop early
+
+While `Session Evals Remaining > 0` you do not get to exit. "Current
+cycle count looks good" is not a stop condition; an unspent eval is a
+planned experiment you failed to run.
+
+If you feel done, that is the signal to read
+`candidates/candidate_<best>/program.py` (or your own best vN.py),
+name the specific structural reason it's stuck, and submit a candidate
+from a different family.
+
+## CRITICAL - eval DB and the session-2 finding
+
+1. Stage the local DB once at session start:
+   `cp shared/notes/oer_eval_local_template.db ./.oer_eval.local.db`
+2. Run all evals with an explicit local DB:
+   `oer-eval eval --program attempts/vN.py --db-path ./.oer_eval.local.db`
+3. The meta agent will replay the rows from
+   `./.oer_eval.local.db` into the workspace `.oer_eval.db` after
+   your session ends.
+4. Do NOT spend evals re-confirming the readonly issue.
+5. NEVER copy or mutate `../../../.oer_eval.db` directly from
+   inside the sandbox.
+
+## SESSION_NOTES.md (required on exit)
+
+Write `SESSION_NOTES.md` at your cwd root before finishing.
+\end{lstlisting}
+
+\paragraph{Session goal.}
+\begin{lstlisting}[style=papercode]
+# goal for next inner-agent session (session 7)
+
+## Status
+- Current best: 1774 cycles, score 83.28.
+- 61 evals remaining in the global quota; this session has MAX_EVALS = 15.
+- load is now the dominant bottleneck again.
+- Session 6 only used 6 of 15 evals before exiting.
+
+## Setup commands
+cp shared/notes/oer_eval_local_template.db ./.oer_eval.local.db
+mkdir -p attempts
+cp shared/notes/best_v59_session6.py attempts/v59_parent.py
+oer-eval eval --program attempts/v59_parent.py --db-path ./.oer_eval.local.db
+
+## Hypotheses (in test order - DO NOT skip later ones if you finish early)
+
+Test 1: family D'' - depth-3 cache.
+Test 2: family C - software-pipelined inner loop.
+Test 3: hash-chain cross-stage algebra.
+Test 4: scheduler tie-breaks aware of engine occupancy.
+Test 5: aggressive scratch reclaim + bundle merging.
+
+## Required behavior
+- MAX_EVALS = 15. Submit 15 attempts.
+- Use `--db-path ./.oer_eval.local.db` on every eval.
+- Save attempts as `attempts/vN.py`.
+- Use offline `Engine` simulator for sanity before eval.
+
+## Required output (`SESSION_NOTES.md`)
+- Best Combined Score and corresponding `attempts/vN.py`.
+- v59 starting profile and the v_best ending profile.
+- For each attempt: score, validity, structural change, which engine shifted.
+- Final local-DB `Remaining Evals`.
+- One specific, falsifiable hypothesis for session 8.
+\end{lstlisting}
+
+\paragraph{Persistent family map.}
+\begin{lstlisting}[style=papercode]
+# Family Map - VLIW Kernel
+
+## Architecture cheatsheet
+- VLEN=8, batch_size=256 -> 32 SIMD groups
+- rounds=16
+- SLOT_LIMITS: alu 12 / valu 6 / load 2 / store 2 / flow 1
+- 6 hash stages, each pure valu (`+`, `^`, `<<`, `>>`)
+- Per element: parity -> next_idx = 2*idx + (1 if even else 2)
+
+## Sessions
+### session 4 - family B+C: fused hash + ping-pong + cached depth-1 reuse
+- best 77.88 / 1897 cycles (`v31`)
+- v27: collapse hash stages 0/2/4 into `multiply_add`
+- v31: cached depth-1 node `vselect` across rounds
+
+### session 5 - family D: idx-update structural reductions
+- best 79.60 / 1856 cycles (`v47`)
+- stage-5 short-circuit hypothesis was FALSIFIED
+- v43: depth-1 base preselection
+- v47: generic non-root precompute of `2*idx + 1`
+
+### session 9 - breakthrough: 1140 cycles via explicit-family port
+- best 129.59 / 1140 cycles (`v91`)
+- v88 explicit-family port (-597)
+- v89 depth-1 madd (-10)
+- v90 depth-3 2-madd (-19)
+- v91 scalar alu parity + per-lane xor (-8)
+
+## Do not repeat
+- Scheduler tie-break / priority tweaks alone.
+- Stage-5 short-circuit `(a^const)^(a>>16)`.
+- Stage-4 -> stage-5 fusion via `multiply_add`.
+
+## Workflow gotchas
+- Use `--db-path ./.oer_eval.local.db` after copying
+  `shared/notes/oer_eval_local_template.db`.
+- Meta agent replays after session ends.
+\end{lstlisting}
+
+\paragraph{Replay utility.}
+\begin{lstlisting}[style=papercode,language=Python]
+#!/usr/bin/env python3
+"""Replay rows from a session's local oer-eval DB into the workspace DB.
+
+Used by the meta agent ONLY (after a session ends) to credit evals that the
+codex sandbox forced into a session-local DB. Inner agents must not run this.
+"""
+session_id = int(sys.argv[1])
+ws = Path(__file__).resolve().parent.parent.parent
+session_dir = ws / "sessions" / f"session_{session_id}"
+local_db = session_dir / "agent_workspace" / ".oer_eval.local.db"
+ws_db = ws / ".oer_eval.db"
+
+src_rows = src.execute(
+    "SELECT agent_name, problem_name, program_path, program_content, "
+    "validity, eval_time, combined_score, error, raw_result "
+    "FROM evaluations ORDER BY id"
+).fetchall()
+
+for r in src_rows:
+    dst.execute(
+        "INSERT INTO evaluations "
+        "(agent_name, problem_name, program_path, program_content, "
+        " validity, eval_time, combined_score, error, raw_result) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (agent_name, r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]),
+    )
+\end{lstlisting}
+
+\paragraph{Session memory written back by the inner agent.}
+\begin{lstlisting}[style=papercode]
+# Session Notes - session 9
+
+## Best result
+- Best Combined Score: 129.59
+- Best cycles: 1140
+- Best file: `attempts/v91.py`
+
+## Attempt log
+- `attempts/v88.py` - explicit-family port
+- `attempts/v89.py` - `depth1` node select `vselect -> madd`
+- `attempts/v90.py` - reduced-flow `depth3` selector
+- `attempts/v91.py` - scalar root parity + per-lane alu xor
+- `attempts/v97.py` - full depth-2 two-`madd` rewrite
+- `attempts/v98.py` - scalarize generic-round post-hash parity extraction
+
+## What worked
+- `v88` cut 597 cycles from `v59_parent`.
+- `depth1` binary-select to `madd` paid.
+- `depth3` reduced-flow selector paid more.
+
+## What did not work
+- naive generic-round selector rewrite was wrong for this schedule shape.
+- fully flow-free depth-2 rewrite also hurt.
+- scalarizing generic-round parity was catastrophic.
+
+## Hypothesis for session 10
+- a partial depth-2 rewrite that replaces only one of the two
+  `flow.vselect`s with `madd` should beat 1140.
+\end{lstlisting}
+
+Together, these excerpts show that the evolved agent harness is not a single prompt edit. It is a layered control structure consisting of persistent instructions, hypothesis-carrying goals, accumulated family-level memory, support code for evaluator interaction, and structured records that are promoted into future sessions.
+
+\subsubsection{Representative Optimization Outcomes}
+\label{appendix:opt_results}
+
+\paragraph{ARC-AGI-2 best artifact.}
+The best ARC-AGI-2 artifact in our run reaches accuracy $0.35$ ($7/20$). Structurally, the final agent has three persistent components: a prompt surface that distinguishes normal feedback refinement from ``fresh exploration,'' a local Pass@K scorer over cached training pairs, and a validate-versus-submit controller that uses the best local score and plateau state.
+
+\begin{lstlisting}[style=papercode,language=Python]
+FEEDBACK_SUFFIX = """
+==== Previous Attempt Feedback ====
+A previous attempt produced this code:
+```python
+{prev_code}
+```
+It passed {passed}/{total} training examples.
+
+FAILING examples (must fix these):
+{fail_details}
+"""
+
+FRESH_EXPLORE_SUFFIX = """
+==== Fresh Exploration Required ====
+Previous attempts have been stuck at a partial solution.
+IGNORE any previous approach and propose a completely
+different interpretation of the transformation rule.
+"""
+
+DIVERSITY_HINTS = [
+    "",
+    "Consider symmetry, rotation, reflection, or tiling patterns.",
+    "Consider connected components, object counting, or shape detection.",
+    "Consider color mapping, replacement, or color-dependent rules.",
+]
+
+class ArcAGIAgent(BaseAgent):
+    """Pass@K with fresh-exploration escape when stuck at local optimum."""
+
+    num_samples: int = Field(default=3)
+    cached_train_pairs: List[Dict[str, Any]] = Field(default_factory=list)
+    best_score_so_far: int = Field(default=-1)
+    best_response_so_far: str = Field(default="")
+    best_code_so_far: str = Field(default="")
+    best_fails: List[Tuple[int, Any]] = Field(default_factory=list)
+    hint_rotation_offset: int = Field(default=0)
+    stuck_counter: int = Field(default=0)
+\end{lstlisting}
+
+\begin{lstlisting}[style=papercode,language=Python]
+class ArcAGIAgent(BaseAgent):
+    async def step(self, observation: Observation, history: Any):
+        ...
+        base_prompt = ARCAGI_PROMPT.format(
+            instruction=instruction_text,
+            action_space=self.current_action_space,
+            memory=self.memory.as_text() if self.memory else "None",
+            obs=observation,
+        )
+
+        train_pairs = _extract_train_pairs(observation)
+        if train_pairs:
+            self.cached_train_pairs = train_pairs
+        elif self.cached_train_pairs:
+            train_pairs = self.cached_train_pairs
+        n_train = len(train_pairs)
+
+        use_fresh_explore = (
+            self.stuck_counter >= 2
+            and n_train > 0
+            and 0 <= self.best_score_so_far < n_train
+        )
+
+        if not use_fresh_explore and (
+            n_train > 0
+            and self.best_score_so_far >= 0
+            and self.best_score_so_far < n_train
+            and self.best_code_so_far
+            and self.best_fails
+        ):
+            fail_details = _format_fail_details(self.best_fails, train_pairs)
+            feedback_suffix = FEEDBACK_SUFFIX.format(
+                prev_code=self.best_code_so_far[:3000],
+                passed=self.best_score_so_far,
+                total=n_train,
+                fail_details=fail_details,
+            )
+        elif use_fresh_explore:
+            feedback_suffix = FRESH_EXPLORE_SUFFIX
+
+        prompts = []
+        for i in range(self.num_samples):
+            hint_idx = (i + self.hint_rotation_offset) % len(DIVERSITY_HINTS)
+            prompts.append(base_prompt + feedback_suffix + DIVERSITY_HINTS[hint_idx])
+        responses = await asyncio.gather(*[self._sample_once(p) for p in prompts])
+
+        for r in valid_responses:
+            code = _extract_python_block(r)
+            score, fails = _score_candidate(code, train_pairs)
+            if score > round_best_score:
+                round_best_score = score
+                round_best_response = r
+                round_best_code = code
+                round_best_fails = fails
+
+        if round_best_score > self.best_score_so_far:
+            self.best_score_so_far = round_best_score
+            self.best_response_so_far = round_best_response
+            self.best_code_so_far = round_best_code
+            self.best_fails = round_best_fails
+            self.stuck_counter = 0
+        elif 0 <= self.best_score_so_far < n_train:
+            self.stuck_counter += 1
+
+        action = self.parse_action(self.best_response_so_far or round_best_response)
+        if self.best_score_so_far >= n_train:
+            action["action"] = "submit"
+        elif step_num >= self.max_refine_steps:
+            action["action"] = "submit"
+        else:
+            action["action"] = "validate"
+\end{lstlisting}
+
+\paragraph{Analysis.}
+The improvement over the seed agent comes from a tighter coupling between search control and task-local verification. First, caching the training pairs removes a brittle dependency on the observation format at later steps, so local verification remains available throughout the interaction. Second, Pass@K sampling with prompt diversification converts a single-sample ReAct loop into a small search procedure over candidate solvers, with selection driven by observed agreement on the training pairs rather than by the raw LLM output alone. Third, the separation between \texttt{FEEDBACK\_SUFFIX} and \texttt{FRESH\_EXPLORE\_SUFFIX} makes the agent alternate explicitly between exploitation and hypothesis reset: partial but improving candidates are refined through concrete failure-conditioned feedback, whereas persistent plateaus trigger a prompt regime that suppresses anchoring to the current local optimum. Finally, the validate-versus-submit controller ties action choice to the best verified score rather than to the latest response, which reduces premature submission of partially correct programs.
+
+\paragraph{Performance-engineering best artifact.}
+The best performance-engineering artifact is a two-file submission. The top-level program is only a wrapper; the schedule-level optimization resides in a benchmark-specialized base that exposes a small set of round-family control points. The final validated artifact reaches $1138$ cycles by combining evaluator-compatible packaging, explicit specialization of the benchmark rounds, and a non-uniform assignment of selector logic across engines.
+
+\paragraph{Submitted wrapper.}
+\begin{lstlisting}[style=papercode,language=Python]
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
+_SPEC = spec_from_file_location("variant_base", Path(__file__).with_name("variant_base.py"))
+_MOD = module_from_spec(_SPEC)
+assert _SPEC.loader is not None
+_SPEC.loader.exec_module(_MOD)
+VariantKernelBuilderBase = _MOD.VariantKernelBuilderBase
+
+class KernelBuilder(VariantKernelBuilderBase):
+    DEPTH1_NODE_STYLE_CALLS = ("madd", "vselect")
+\end{lstlisting}
+
+\paragraph{Parameterized benchmark family.}
+\begin{lstlisting}[style=papercode,language=Python]
+BENCH_FOREST_HEIGHT = 10
+BENCH_N_NODES = 2 ** (BENCH_FOREST_HEIGHT + 1) - 1
+BENCH_BATCH_SIZE = 256
+BENCH_ROUNDS = 16
+BENCH_FOREST_BASE = 7
+BENCH_INP_INDICES_P = BENCH_FOREST_BASE + BENCH_N_NODES
+BENCH_INP_VALUES_P = BENCH_INP_INDICES_P + BENCH_BATCH_SIZE
+BENCH_TILES = BENCH_BATCH_SIZE // VLEN
+
+class VariantKernelBuilderBase:
+    ROOT_SCALAR_AND_CALLS = (True, False)
+    DEPTH1_NODE_STYLE_CALLS = ("madd", "madd")
+    DEPTH1_POSTHASH_SCALAR_AND_CALLS = (False, False)
+    DEPTH2_STYLE_CALLS = ("base", "base")
+    DEPTH2_POSTHASH_SCALAR_AND_CALLS = (False, False)
+    DEPTH3_STYLE_CALLS = ("madd", "madd")
+    DEPTH3_POSTHASH_SCALAR_AND_CALLS = (False, False)
+\end{lstlisting}
+
+\paragraph{Core benchmark schedule.}
+\begin{lstlisting}[style=papercode,language=Python]
+root_scalar_and_calls = self.ROOT_SCALAR_AND_CALLS
+depth1_node_style_calls = self.DEPTH1_NODE_STYLE_CALLS
+depth1_posthash_scalar_and_calls = self.DEPTH1_POSTHASH_SCALAR_AND_CALLS
+depth2_style_calls = self.DEPTH2_STYLE_CALLS
+depth2_posthash_scalar_and_calls = self.DEPTH2_POSTHASH_SCALAR_AND_CALLS
+depth3_style_calls = self.DEPTH3_STYLE_CALLS
+depth3_posthash_scalar_and_calls = self.DEPTH3_POSTHASH_SCALAR_AND_CALLS
+
+def emit_hash(tile_ids):
+    for tile in tile_ids:
+        self.emit_madd(vals[tile], vals[tile], mul4097_v, addc1_v)
+    for tile in tile_ids:
+        self.emit_valu(">>", tmp1s[tile], vals[tile], shift19_v)
+    for tile in tile_ids:
+        for lane in range(VLEN):
+            self.emit_alu("^", vals[tile] + lane, vals[tile] + lane, c2_s)
+    for tile in tile_ids:
+        self.emit_valu("^", vals[tile], vals[tile], tmp1s[tile])
+    for tile in tile_ids:
+        self.emit_madd(vals[tile], vals[tile], mul33_v, addc3_v)
+    for tile in tile_ids:
+        self.emit_valu("<<", tmp1s[tile], vals[tile], shift9_v)
+    for tile in tile_ids:
+        for lane in range(VLEN):
+            self.emit_alu("+", vals[tile] + lane, vals[tile] + lane, c4_s)
+    for tile in tile_ids:
+        self.emit_valu("^", vals[tile], vals[tile], tmp1s[tile])
+    for tile in tile_ids:
+        self.emit_madd(vals[tile], vals[tile], mul9_v, addc5_v)
+    for tile in tile_ids:
+        self.emit_valu(">>", tmp1s[tile], vals[tile], shift16_v)
+    for tile in tile_ids:
+        for lane in range(VLEN):
+            self.emit_alu("^", vals[tile] + lane, vals[tile] + lane, c6_s)
+    for tile in tile_ids:
+        self.emit_valu("^", vals[tile], vals[tile], tmp1s[tile])
+
+def emit_parity_and(dest_vec: int, src_vec: int, use_scalar_and: bool):
+    if use_scalar_and:
+        for lane in range(VLEN):
+            self.emit_alu("&", dest_vec + lane, src_vec + lane, one_v + lane)
+    else:
+        self.emit_valu("&", dest_vec, src_vec, one_v)
+
+def round_root(use_scalar_and: bool):
+    for tile in tiles:
+        self.emit_valu("^", vals[tile], vals[tile], root_v)
+    emit_hash(tiles)
+    for tile in tiles:
+        emit_parity_and(idxs[tile], vals[tile], use_scalar_and)
+
+def round_depth1(node_style: str, use_scalar_and: bool):
+    for tile in tiles:
+        if node_style == "madd":
+            self.emit_madd(tmp0s[tile], idxs[tile], node12_diff_v, node1_v)
+        elif node_style == "vselect":
+            self.emit_vselect(tmp0s[tile], idxs[tile], node2_v, node1_v)
+        else:
+            raise ValueError(f"unknown depth1 node style: {node_style}")
+    for tile in tiles:
+        self.emit_valu("^", vals[tile], vals[tile], tmp0s[tile])
+    emit_hash(tiles)
+    for tile in tiles:
+        emit_parity_and(tmp0s[tile], vals[tile], use_scalar_and)
+        self.emit_madd(idxs[tile], idxs[tile], two_v, tmp0s[tile])
+
+def round_depth2(style: str, use_scalar_and: bool):
+    for tile in tiles:
+        self.emit_valu("&", d2_bit0, idxs[tile], one_v)
+        self.emit_valu(">>", d2_bit1, idxs[tile], one_v)
+        if style == "base":
+            self.emit_vselect(tmp0s[tile], d2_bit0, node4_v, node3_v)
+            self.emit_vselect(d2_mix, d2_bit0, node41_diff_v, node30_diff_v)
+        elif style == "madd_first":
+            self.emit_madd(tmp0s[tile], d2_bit0, node43_diff_v, node3_v)
+            self.emit_vselect(d2_mix, d2_bit0, node41_diff_v, node30_diff_v)
+        elif style == "madd_second":
+            self.emit_vselect(tmp0s[tile], d2_bit0, node4_v, node3_v)
+            self.emit_madd(d2_mix, d2_bit0, d2_mix_delta_v, node30_diff_v)
+        else:
+            raise ValueError(f"unknown depth2 style: {style}")
+        self.emit_madd(tmp0s[tile], d2_bit1, d2_mix, tmp0s[tile])
+        self.emit_valu("^", vals[tile], vals[tile], tmp0s[tile])
+    emit_hash(tiles)
+    for tile in tiles:
+        emit_parity_and(tmp0s[tile], vals[tile], use_scalar_and)
+        self.emit_madd(idxs[tile], idxs[tile], two_v, tmp0s[tile])
+\end{lstlisting}
+
+\begin{lstlisting}[style=papercode,language=Python]
+def round_depth3(style: str, use_scalar_and: bool):
+    for tile in tiles:
+        self.emit_valu("&", d3_bit0, idxs[tile], one_v)
+        self.emit_valu(">>", d3_bit1, idxs[tile], one_v)
+        self.emit_valu("&", d3_bit2, d3_bit1, one_v)
+        self.emit_valu(">>", d3_bit1, idxs[tile], two_v)
+        if style == "madd":
+            self.emit_vselect(d3_pair0, d3_bit0, depth3_nodes[1], depth3_nodes[0])
+            self.emit_vselect(d3_pair1, d3_bit0, depth3_diff_lo1_v, depth3_diff_lo0_v)
+            self.emit_madd(d3_pair0, d3_bit2, d3_pair1, d3_pair0)
+            self.emit_vselect(d3_pair1, d3_bit0, depth3_nodes[5], depth3_nodes[4])
+            self.emit_vselect(tmp0s[tile], d3_bit0, depth3_diff_hi1_v, depth3_diff_hi0_v)
+            self.emit_madd(d3_pair1, d3_bit2, tmp0s[tile], d3_pair1)
+            self.emit_vselect(tmp0s[tile], d3_bit1, d3_pair1, d3_pair0)
+        elif style == "vselect":
+            self.emit_vselect(d3_pair0, d3_bit0, depth3_nodes[1], depth3_nodes[0])
+            self.emit_vselect(d3_pair1, d3_bit0, depth3_nodes[3], depth3_nodes[2])
+            self.emit_vselect(d3_pair2, d3_bit0, depth3_nodes[5], depth3_nodes[4])
+            self.emit_vselect(d3_pair3, d3_bit0, depth3_nodes[7], depth3_nodes[6])
+            self.emit_vselect(d3_pair0, d3_bit2, d3_pair1, d3_pair0)
+            self.emit_vselect(d3_pair2, d3_bit2, d3_pair3, d3_pair2)
+            self.emit_vselect(tmp0s[tile], d3_bit1, d3_pair2, d3_pair0)
+        else:
+            raise ValueError(f"unknown depth3 style: {style}")
+        for lane in range(VLEN):
+            self.emit_alu("^", vals[tile] + lane, vals[tile] + lane, tmp0s[tile] + lane)
+    emit_hash(tiles)
+    for tile in tiles:
+        emit_parity_and(tmp0s[tile], vals[tile], use_scalar_and)
+        self.emit_madd(idxs[tile], idxs[tile], two_v, tmp0s[tile])
+        self.emit_valu("+", idxs[tile], idxs[tile], depth4_base_v)
+
+def round_gather(update_idx: bool):
+    for tile in tiles:
+        for lane in range(VLEN):
+            self.emit_load_offset(tmp0s[tile], idxs[tile], lane)
+    for tile in tiles:
+        self.emit_valu("^", vals[tile], vals[tile], tmp0s[tile])
+    emit_hash(tiles)
+    if update_idx:
+        for tile in tiles:
+            self.emit_valu("&", tmp0s[tile], vals[tile], one_v)
+            self.emit_vselect(tmp1s[tile], tmp0s[tile], add_odd_v, add_even_v)
+            self.emit_madd(idxs[tile], idxs[tile], two_v, tmp1s[tile])
+
+round_root(use_scalar_and=root_scalar_and_calls[0])
+round_depth1(depth1_node_style_calls[0], depth1_posthash_scalar_and_calls[0])
+round_depth2(depth2_style_calls[0], depth2_posthash_scalar_and_calls[0])
+round_depth3(depth3_style_calls[0], depth3_posthash_scalar_and_calls[0])
+round_gather(update_idx=True)
+round_gather(update_idx=True)
+round_gather(update_idx=True)
+round_gather(update_idx=True)
+round_gather(update_idx=True)
+round_gather(update_idx=True)
+round_gather(update_idx=False)
+round_root(use_scalar_and=root_scalar_and_calls[1])
+round_depth1(depth1_node_style_calls[1], depth1_posthash_scalar_and_calls[1])
+round_depth2(depth2_style_calls[1], depth2_posthash_scalar_and_calls[1])
+round_depth3(depth3_style_calls[1], depth3_posthash_scalar_and_calls[1])
+round_gather(update_idx=True)
+\end{lstlisting}
+
+\begin{lstlisting}[style=papercode]
+Evaluation:      valid=True, cycles=1138, speedup=129.82x
+Status:          success
+Problem:         perf_engineering
+Combined Score:  129.8189806678383
+Validity:        1.0
+Eval Time:       31.66170883178711s
+\end{lstlisting}
+
+\paragraph{Analysis.}
+The low cycle count comes from three coupled changes. First, the file-local \texttt{importlib} wrapper is not cosmetic: without it, the evaluator rejects the whole family because sibling modules are not imported through the workspace package path. The wrapper therefore preserves a modular implementation while keeping the submission evaluator-compatible. Second, the benchmark-specialized base restructures the kernel around the exact round pattern of the benchmark rather than a generic loop. Its control flow is emitted as four specialized top-of-tree rounds, followed by seven gather rounds, followed by the same four specialized rounds and a final gather; this removes generic control overhead where the traversal repeatedly revisits the upper levels of the tree and makes the period-$11$ reuse pattern directly schedulable. Within each specialized round, \texttt{emit\_hash} is emitted phase-major across tiles, which exposes many independent chains to the scheduler and improves overlap between \texttt{alu}, \texttt{valu}, and memory operations. Third, the remaining gains come from engine balancing rather than from further structural refactoring. On this VLIW benchmark, \texttt{flow} has only one slot per cycle, so replacing a binary selector by \texttt{multiply\_add} is profitable only when the induced \texttt{valu} pressure stays below the new bottleneck. The progression recorded in the run data is consistent with this view: the explicit-family port yields the dominant improvement ($-597$ cycles), additional \texttt{madd}-based selectors at depth 1 and depth 3 save another $29$ cycles, an \texttt{alu}-based parity/XOR rebalance saves $8$, and the final artifact gains the last $2$ cycles by reverting only the second specialized depth-1 selector back to \texttt{vselect}. The best artifact is therefore not simply a shorter program; it is a schedule in which specialization, phase ordering, and per-round engine placement are co-tuned to the simulator's slot limits.
+
+Taken together, these artifacts illustrate two modes of durable improvement in \ourmethod: benchmark tasks improve through changes in how the optimizer reasons over failures, whereas open-ended optimization improves through the preservation and recombination of low-level implementation knowledge across many sessions.

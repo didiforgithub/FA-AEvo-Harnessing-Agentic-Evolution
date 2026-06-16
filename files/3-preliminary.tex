@@ -1,0 +1,83 @@
+\section{Problem Formulation}
+\label{sec:formulation}
+
+\subsection{Agentic Evolution}
+\label{sec:agentic_evolution}
+
+We formulate agentic evolution as a process for optimizing an artifact through repeated improvement rounds. 
+Let $x \in \mathcal{X}$ denote the object being optimized, such as a program, prompt, workflow, skill, tool, or agent component. 
+We use $r$ to index the evolution round. 
+Each round produces a round context $c_r$, which contains the candidates generated in that round, their evaluation results, execution traces, failures, costs, and any intermediate information produced during optimization. 
+The accumulated evolution context after $r$ rounds is denoted as
+\[
+\mathcal{C}_r = (c_1, c_2, \ldots, c_r).
+\]
+Finally, let $\Pi$ denote the optimization mechanism that advances evolution:
+\[
+c_r = \Pi(\mathcal{C}_{r-1}), 
+\qquad 
+\mathcal{C}_r = \mathcal{C}_{r-1} \oplus c_r,
+\]
+where $\oplus$ appends the newly produced round context to the accumulated evolution context. 
+$\Pi$ does not have to be a fixed algorithm; it can also be an agentic process that reads the history, reasons over feedback, and decides how to generate the next candidate. 
+Thus, $\Pi$ represents the mechanism by which search is continued from the current evolution context.
+
+Under this formulation, existing agentic evolution methods mainly differ in how $\Pi$ is instantiated. 
+In \textbf{procedure-based evolution }, $\Pi$ is a predefined outer loop whose behavior is mainly determined by selection and optimization: the selection rule chooses previous candidates or contexts from $\mathcal{C}_{r-1}$, while the optimization operator generates new candidates from the selected information. 
+Evaluation assigns scores, traces, and feedback to the generated candidates, providing signals for future selection and update. 
+In \textbf{agent-based evolution}, $\Pi$ is instead implemented by a general-purpose agent. 
+Rather than following fixed selection-and-optimization rules, the agent reads the accumulated context $\mathcal{C}_{r-1}$ and decides what to do next, such as inspecting feedback, comparing candidates, modifying artifacts, writing tools, or generating new attempts. 
+Thus, procedure-based evolution  specifies search control explicitly but rigidly, while agent-based evolution leaves search control implicit in the agent's context-conditioned behavior.
+
+In both cases, evolution proceeds by repeatedly applying $\Pi$ while accumulating context $\mathcal{C}_r$. 
+This context records not only the candidates produced by evolution, but also how search has unfolded through evaluation results, traces, failures, costs, and intermediate artifacts. 
+The next subsection uses this accumulated context to define an environment view of evolution.
+
+\subsection{Evolution as an Interactive Environment}
+\label{sec:evolution_as_environment}
+
+We treat the evolution process itself as an interactive environment for a meta-agent. 
+At round $r$, the state of this environment is defined by the round index and the accumulated evolution context:
+\[
+s_r = (r, \mathcal{C}_r).
+\]
+When the optimization mechanism may change across rounds, we write the current mechanism as $\Pi_r$. 
+This mechanism specifies the transition of the environment. 
+Without intervention, the next round is produced by applying the current mechanism to the current context:
+\[
+c_{r+1} = \Pi_r(\mathcal{C}_r),
+\qquad
+s_{r+1} = (r+1, \mathcal{C}_r \oplus c_{r+1}).
+\]
+Thus, $\Pi_r$ is the transition rule that determines how the evolution process continues.
+
+To interact with this environment, we introduce a meta-agent $M$. 
+The role of $\Pi_r$ is to continue the candidate search, while the role of $M$ is to act on the evolution process that governs this search. 
+Since the full state $s_r$ can be large and noisy, the meta-agent receives an observation extracted from the state:
+\[
+o_r = \Phi(s_r) = \Phi(r, \mathcal{C}_r),
+\]
+where $\Phi$ summarizes relevant information from the accumulated context, such as progress, repeated failures, invalid attempts, cost patterns, or redundant search directions.
+
+Given this observation, the meta-agent produces an edit action:
+\[
+a_r = M(o_r).
+\]
+The action does not directly become the next candidate. 
+Instead, it modifies the transition rule of the evolution environment:
+\[
+\Pi_{r+1} = \mathrm{Edit}(\Pi_r, a_r).
+\]
+The edited mechanism is then used to continue evolution:
+\[
+c_{r+1} = \Pi_{r+1}(\mathcal{C}_r),
+\qquad
+\mathcal{C}_{r+1} = \mathcal{C}_r \oplus c_{r+1}.
+\]
+In this sense, we formulate agentic evolution as an environment in which the state is the accumulated evolution context, the observation is a summary of this context, and the action edits the mechanism that controls future search.
+
+This formulation applies to both forms of agentic evolution. 
+For procedure-based evolution , editing $\Pi_r$ changes explicit components such as selection, optimization, feedback use, budget allocation, or update rules. 
+For agent-based evolution, editing $\Pi_r$ changes the agentic context that shapes future decisions, such as skills, goals, tools, feedback format, or execution context. 
+In both cases, the meta-agent steers evolution not by proposing one more candidate, but by modifying how subsequent search is carried out. 
+Section~\ref{sec:methodology} describes the system design used to instantiate this formulation.
