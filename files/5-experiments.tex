@@ -224,6 +224,8 @@ Table~\ref{tab:ablation} (Appendix) ablates two key components of \ourmethod$_{\
 
 \subsection{Case Study}
 
+We examine two representative trajectories to illustrate how \ourmethod uses accumulated evidence to revise the evolution process.
+The first case studies procedure evolution on ARC-AGI-2, while the second studies an external optimizer-discovery trajectory that produced a public pull request to the Modded-NanoGPT benchmark.
 
 \begin{figure}[t]
     \centering
@@ -237,6 +239,7 @@ Table~\ref{tab:ablation} (Appendix) ablates two key components of \ourmethod$_{\
     \label{fig:case-study}
 \end{figure}
 
+\paragraph{Procedure evolution on ARC-AGI-2.}
 Figure~\ref{fig:case-study} illustrates how \ourmethod performs meta-intervention during procedure-based evolution on an ARC-AGI-2 task.
 Starting from $P_0$, the meta-agent initializes a best-parent rewrite procedure that selects candidate agents by validation accuracy.
 This first produces an initial breakthrough candidate $C_1$, but subsequent variants expose several failure modes in observation parsing and refinement.
@@ -245,3 +248,31 @@ When the search becomes stuck, $P_4$ drops stale feedback and samples more diver
 Later interventions $P_{5}$--$P_{6}$ explore stronger de-anchoring through task-profile and skeleton prompts, but these regress from $P_4$.
 This example shows that failed candidates are not merely discarded; they become process-level evidence that helps the meta-agent decide how to revise the future evolution procedure.
 Additional evolved procedures, optimized agent harnesses, and task-level analyses are provided in Appendix~\ref{appendix:opt_procedure} and Appendix~\ref{appendix:opt_harness}.
+
+\paragraph{External auto-research on optimizer discovery.}
+Figure~\ref{fig:nanogpt-case-study} shows a second case study on the Modded-NanoGPT Track-3 optimizer-discovery benchmark, where the goal is to minimize the first training step at which a fixed nanoGPT setup reaches a validation-loss target under a statistical test.
+This trajectory did not improve through a smooth local hyperparameter sweep.
+Early rounds first separated infrastructure failures from optimizer evidence, then found that learning-rate schedule geometry was the first large lever.
+When the evaluator shifted from single-seed crossing to a multi-seed mean objective, the search problem changed: strong candidates had to move the aggregate validation curve rather than only make one seed cross early.
+
+The search then reached a local basin around a PR321-style SOAP-Muon stack.
+A strong local candidate combined a Muon schedule near 2875 steps, Muon schedule power near 1.183, paired norm-gain initialization, and EMA-Nesterov lookahead strength 0.325, but nearby sweeps mostly shifted the bottleneck between seeds.
+The decisive intervention was to change the mechanism family.
+The meta-agent adopted a radius-pin-aware stack consisting of Tail-EMA evaluation readout, RowFloor, and post-pin Cautious Weight Decay, motivated by the observation that ordinary magnitude changes are erased by the radius pin whereas readout changes, row/shape changes, and post-pin anisotropy can survive.
+Controlled ablations showed that this family was additive, and a final readout calibration, \texttt{TAILEMA\_TAU}=120 with \texttt{TAILEMA\_LAMBDA}=0.65, produced the best local candidate.
+The resulting public PR \#331 to \href{https://github.com/KellerJordan/modded-nanogpt/pull/331}{KellerJordan/modded-nanogpt} first satisfies the benchmark's $n=8$ formal statistic at 2660 steps, with mean validation loss 3.27857375 and $(3.28-\mathrm{mean})\sqrt{8}=0.00403404$.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=1\linewidth]{images/nanogpt_evolve_case_study_georgia_clean_v2.pdf}
+    \caption{
+    Case study of external auto-research on the Modded-NanoGPT Track-3 optimizer-discovery benchmark.
+    The x-axis shows reconstructed search milestones rather than the full evaluation ledger.
+    The y-axis reports first target-passing training steps, where lower is better; the visual scale is continuous but nonlinear to expand the target zone from 2770 to 2660 steps.
+    The trajectory first improves through evaluator grounding and schedule alignment, then plateaus around a PR321-style SOAP-Muon basin, and finally improves after the meta-agent switches to a radius-pin-surviving mechanism family.
+    The final public PR \#331 validates the local trajectory under the benchmark's $n=8$ formal statistic.
+    }
+    \label{fig:nanogpt-case-study}
+\end{figure}
+
+\FloatBarrier
